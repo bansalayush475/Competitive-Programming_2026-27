@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stack Calculator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="header">
+    <h1><em>Stack</em> Calculator</h1>
+  </div>
+
+  <!-- Calculator -->
+  <div class="calc">
+
+    <div class="display-wrap">
+      <div class="display-expr"  id="expr-display">&nbsp;</div>
+      <div class="display-result" id="result-display">0</div>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">ready</span>
+    </div>
+
+    <div class="input-bar">
+      <input
+        class="expr-input"
+        id="expr-input"
+        type="text"
+        placeholder="e.g. 8 / 92 * 9(5 - 9)"
+        autocomplete="off"
+      >
+      <button class="eval-btn" id="eval-btn" onclick="calcEvaluate()">EVAL</button>
+    </div>
+
+    <div class="keypad">
+      <button class="key clr"   onclick="clearAll()">AC</button>
+      <button class="key clr"   onclick="deleteLast()">⌫</button>
+      <button class="key paren" onclick="appendChar('(')">( </button>
+      <button class="key paren" onclick="appendChar(')')"> )</button>
+
+      <button class="key" onclick="appendChar('7')">7</button>
+      <button class="key" onclick="appendChar('8')">8</button>
+      <button class="key" onclick="appendChar('9')">9</button>
+      <button class="key op" onclick="appendChar(' / ')">÷</button>
+
+      <button class="key" onclick="appendChar('4')">4</button>
+      <button class="key" onclick="appendChar('5')">5</button>
+      <button class="key" onclick="appendChar('6')">6</button>
+      <button class="key op" onclick="appendChar(' * ')">×</button>
+
+      <button class="key" onclick="appendChar('1')">1</button>
+      <button class="key" onclick="appendChar('2')">2</button>
+      <button class="key" onclick="appendChar('3')">3</button>
+      <button class="key op" onclick="appendChar(' - ')">−</button>
+
+      <button class="key" onclick="appendChar('0')">0</button>
+      <button class="key" onclick="appendChar('.')">.</button>
+      <button class="key op" onclick="appendChar(' % ')">%</button>
+      <button class="key op" onclick="appendChar(' + ')">+</button>
+
+      <button class="key"       onclick="appendChar(' ** ')">xⁿ</button>
+      <button class="key paren" onclick="appendChar('sqrt(')">√</button>
+      <button class="key eq" style="grid-column:span 2" onclick="calcEvaluate()">=</button>
+    </div>
+
+  </div>
+
+  <!-- History -->
+  <div class="history-wrap">
+    <div class="history-header">
+      <span class="history-title">History</span>
+      <button class="history-clear" onclick="clearHistory()">Clear</button>
+    </div>
+    <div class="history-list" id="history-list">
+      <div class="history-empty">No calculations yet</div>
+    </div>
+  </div>
+
+<script>
+  // ── Config ──────────────────────────────────────────────────────────────────
+  const API = 'http://localhost:3000/api';
+
+  // ── State ───────────────────────────────────────────────────────────────────
+  let currentExpr = '';
+  let isLoading   = false;
+
+  // ── DOM ─────────────────────────────────────────────────────────────────────
+  const exprDisplay   = document.getElementById('expr-display');
+  const resultDisplay = document.getElementById('result-display');
+  const exprInput     = document.getElementById('expr-input');
+  const evalBtn       = document.getElementById('eval-btn');
+  const statusDot     = document.getElementById('status-dot');
+  const statusText    = document.getElementById('status-text');
+  const historyList   = document.getElementById('history-list');
+
+  // ── Status ──────────────────────────────────────────────────────────────────
+  function setStatus(state, msg) {
+    statusDot.className = `status-dot ${state}`;
+    statusText.textContent = msg;
+  }
+
+  // ── Keypad ──────────────────────────────────────────────────────────────────
+  function appendChar(ch) {
+    currentExpr += ch;
+    exprInput.value = currentExpr;
+    exprDisplay.textContent = currentExpr;
+    resultDisplay.textContent = '···';
+    resultDisplay.className = 'display-result';
+    setStatus('', 'ready');
+  }
+
+  function deleteLast() {
+    currentExpr = currentExpr.trimEnd().slice(0, -1).trimEnd();
+    exprInput.value = currentExpr;
+    exprDisplay.textContent = currentExpr || '\u00a0';
+    if (!currentExpr) { resultDisplay.textContent = '0'; resultDisplay.className = 'display-result'; }
+  }
+
+  function clearAll() {
+    currentExpr = '';
+    exprInput.value = '';
+    exprDisplay.textContent = '\u00a0';
+    resultDisplay.textContent = '0';
+    resultDisplay.className = 'display-result';
+    setStatus('', 'ready');
+  }
+
+  // ── API call ─────────────────────────────────────────────────────────────────
+  async function calcEvaluate() {
+    const raw = (exprInput.value || currentExpr).trim();
+    if (!raw || isLoading) return;
+
+    currentExpr = raw;
+    exprDisplay.textContent = raw;
+    isLoading = true;
+    evalBtn.disabled = true;
+    setStatus('loading', 'sending to server…');
+    resultDisplay.textContent = '···';
+    resultDisplay.className = 'display-result';
+
+    try {
+      const res  = await fetch(`${API}/calculate`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ expression: raw }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        resultDisplay.textContent = data.result;
+        resultDisplay.className   = 'display-result ok';
+        setStatus('ok', `postfix: ${data.postfix}`);
+        loadHistory();
+      } else {
+        resultDisplay.textContent = data.error || 'Error';
+        resultDisplay.className   = 'display-result err';
+        setStatus('err', data.error || 'calculation error');
+      }
+
+    } catch (_) {
+      resultDisplay.textContent = 'Server unreachable';
+      resultDisplay.className   = 'display-result err';
+      setStatus('err', 'cannot connect — is the server running?');
+    } finally {
+      isLoading = false;
+      evalBtn.disabled = false;
+    }
+  }
+
+  // ── History ──────────────────────────────────────────────────────────────────
+  async function loadHistory() {
+    try {
+      const res  = await fetch(`${API}/history`);
+      const data = await res.json();
+      renderHistory(data.history || []);
+    } catch (_) { /* silent */ }
+  }
+
+  function renderHistory(items) {
+    if (!items.length) {
+      historyList.innerHTML = '<div class="history-empty">No calculations yet</div>';
+      return;
+    }
+    historyList.innerHTML = items.map(item => `
+      <div class="history-item" onclick="reuseHistory('${escAttr(item.expression)}')">
+        <span class="history-expr">${escH(item.expression)}</span>
+        <span class="history-result">${escH(String(item.result))}</span>
+      </div>
+    `).join('');
+  }
+
+  function reuseHistory(expr) {
+    currentExpr = expr;
+    exprInput.value = expr;
+    exprDisplay.textContent = expr;
+    resultDisplay.textContent = '···';
+    resultDisplay.className = 'display-result';
+    setStatus('', 'ready — press EVAL');
+  }
+
+  async function clearHistory() {
+    try {
+      await fetch(`${API}/history`, { method: 'DELETE' });
+      renderHistory([]);
+    } catch (_) { /* silent */ }
+  }
+
+  // ── Utils ────────────────────────────────────────────────────────────────────
+  function escH(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
+  function escAttr(str) {
+    return str.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+  }
+
+  // ── Keyboard ─────────────────────────────────────────────────────────────────
+  exprInput.addEventListener('keydown', e => { if (e.key === 'Enter') calcEvaluate(); });
+  exprInput.addEventListener('input', function () {
+    currentExpr = this.value;
+    exprDisplay.textContent = currentExpr || '\u00a0';
+  });
+
+  // ── Init ─────────────────────────────────────────────────────────────────────
+  loadHistory();
+</script>
+
+</body>
+</html>
